@@ -1,19 +1,24 @@
-mod verify_token;
+#![allow(unused_imports)]
+
 mod models;
 mod routes;
+mod verify_token;
 
 use actix_cors::Cors;
+use actix_web::middleware::Logger;
 use actix_web::{web, App, HttpServer};
 use dotenv::dotenv;
 use mongodb::{options::ClientOptions, Client};
+use routes::auth::{login_user, register_user};
+
 use std::env;
 
+use crate::models::{list_mod, movie_mod, user_mod};
 use crate::routes::{auth, lists, movies, users};
-use crate::models::{user_mod, movie_mod, list_mod};
-
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
+    std::env::set_var("RUST_LOG", "actix_web=info");
     env_logger::init();
     dotenv().ok();
 
@@ -23,6 +28,9 @@ async fn main() -> std::io::Result<()> {
         .expect("Failed to parse MongoDB URL");
 
     let client = Client::with_options(client_options).expect("Failed to create MongoDB client");
+    let db = client
+        .database("test")
+        .collection::<user_mod::User>("users");
 
     println!("MongoDB database connected!");
 
@@ -36,8 +44,17 @@ async fn main() -> std::io::Result<()> {
                     .allowed_headers(vec!["Content-Type", "Authorization"])
                     .max_age(3600),
             )
-            .app_data(web::Data::new(client.clone()))
-            
+            .wrap(Logger::default())
+            .app_data(web::Data::new(db.clone()))
+            .service(
+                web::scope("/api/auth")
+                    .route("/register", web::post().to(register_user))
+                    .route("/login", web::post().to(login_user)),
+            )
+        // .service{
+        //     web::scope("/api/movies/")
+
+        // }
     })
     .bind(format!("localhost:{}", port))?;
 

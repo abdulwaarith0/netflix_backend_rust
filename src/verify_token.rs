@@ -1,42 +1,58 @@
+use actix_web::{web::Data, HttpRequest, HttpMessage};
 use jsonwebtoken::{decode, DecodingKey, Validation};
-use reqwest::header::HEADER_AUTHORIZATION;
+use std::env;
+use thiserror::Error;
 
-fn get_jwt_token(req: &Request) -> Option<String> {
-    if let Some(cookie) = req.cookies().get("token") {
-        return Some(cookie.value().to_owned());
-    }
+use crate::auth::Claims;
 
-    if let Some(header) = req.headers().get(HEADER_AUTHORIZATION) {
-        if let Ok(header_str) = header.to_str() {
-            return header_str.split(' ').nth(1).map(|s| s.to_owned());
-        }
-    }
-
-    None
+fn get_token_from_cookie(req: &HttpRequest) -> Option<String> {
+    req.headers()
+        .get(actix_web::http::header::COOKIE)
+        .and_then(|header| header.to_str().ok())
+        .and_then(|cookies| {
+            cookies.split(';').find_map(|cookie| {
+                let mut parts = cookie.trim().split('=');
+                if parts.next()? == "token" {
+                    parts.next().map(String::from)
+                } else {
+                    None
+                }
+            })
+        })
 }
 
-async fn verify(req: Request, res: Response) -> Result<(), Error> {
-    let token = get_jwt_token(&req).ok_or_else(|| Error::new("Token not found"))?;
+fn get_token_from_auth_header(req: &HttpRequest) -> Option<String> {
+    req.headers()
+        .get(actix_web::http::header::PROXY_AUTHORIZATION)
+        .and_then(|header| header.to_str().ok())
+        .and_then(|header_str| header_str.split(' ').nth(1).map(String::from))
+}
 
-    let secret_key = match env::var("SECRET_KEY") {
-        Ok(key) => key,
-        Err(_) => return Err(Error::new("SECRET_KEY not set")),
-    };
+fn get_jwt_token(req: &HttpRequest) -> Option<String> {
+    get_token_from_cookie(req).or_else(|| get_token_from_auth_header(req))
+}
 
+async fn verify(req: HttpRequest) -> Result<(), Box<dyn std::error::Error>> {
+    let token = get_jwt_token(&req).ok_or(AppError::TokenNotFound)?;
+    let secret_key = env::var("SECRET_KEY").map_err(|_| AppError::SecretKeyNotSet)?;
     let token_data = decode::<Claims>(
         &token,
         &DecodingKey::from_secret(secret_key.as_ref()),
         &Validation::default(),
-    );
+    ).map_err(|e| AppError::DecodeError(e.to_string()))?;
 
-    match token_data {
-        Ok(data) => {
-            req.extensions_mut().insert(data.claims);
-            Ok(())
-        }
-        Err(e) => {
+    req.extensions_mut().insert(token_data.claims);
+    Ok(())
+}
 
-            Err(Error::new("Failed to decode token"))
-        }
-    }
+#[derive(Error, Debug)]
+pub enum AppError {
+    #[error("Token not found")]
+    TokenNotFound,
+    #[error("Secret key not set")]
+    SecretKeyNotSet,
+    #[error("Failed to decode token: {0}")]
+    DecodeError(String),
+    #[error("Internal server error: {0}")]
+    InternalServerError(String),
 }

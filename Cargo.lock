@@ -1502,10 +1502,12 @@ dependencies = [
  "jsonwebtoken",
  "log",
  "mongodb",
+ "openssl",
  "rand_core",
  "reqwest",
  "serde",
  "serde_json",
+ "thiserror",
 ]
 
 [[package]]
