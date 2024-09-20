@@ -10,6 +10,7 @@ use actix_web::{web, App, HttpServer};
 use dotenv::dotenv;
 use mongodb::{options::ClientOptions, Client};
 use routes::auth::{login_user, register_user};
+use routes::lists::{create_list, delete_list, get_lists};
 use routes::movies::{create_movie, get_all_movies, get_movie, get_random_movie};
 
 use std::env;
@@ -35,6 +36,9 @@ async fn main() -> std::io::Result<()> {
     let movie_collection = client
         .database("test")
         .collection::<movie_mod::Movie>("movies");
+    let list_collection = client
+        .database("test")
+        .collection::<list_mod::List>("lists");
 
     println!("MongoDB database connected!");
 
@@ -51,6 +55,7 @@ async fn main() -> std::io::Result<()> {
             .wrap(Logger::default())
             .app_data(web::Data::new(auth_db.clone()))
             .app_data(web::Data::new(movie_collection.clone()))
+            .app_data(web::Data::new(list_collection.clone()))
             .service(
                 web::scope("/api/auth")
                     .route("/register", web::post().to(register_user))
@@ -62,6 +67,12 @@ async fn main() -> std::io::Result<()> {
                     .route("/", web::get().to(get_all_movies))
                     .route("/find/{id}", web::get().to(get_movie))
                     .route("/random", web::get().to(get_random_movie)),
+            )
+            .service(
+                web::scope("/api/lists")
+                    .route("/", web::post().to(create_list))
+                    .route("/{id}", web::delete().to(delete_list))
+                    .route("/", web::get().to(get_lists)),
             )
     })
     .bind(format!("localhost:{}", port))?;
