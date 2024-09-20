@@ -9,3 +9,4 @@ pub struct User {
     pub profile_pic: Option<String>,
     pub is_admin: Option<bool>,
 }
+

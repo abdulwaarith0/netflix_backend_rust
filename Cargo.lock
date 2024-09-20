@@ -1498,6 +1498,7 @@ dependencies = [
  "decode",
  "dotenv",
  "env_logger",
+ "futures-util",
  "hyper",
  "jsonwebtoken",
  "log",

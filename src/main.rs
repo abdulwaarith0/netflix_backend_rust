@@ -10,6 +10,7 @@ use actix_web::{web, App, HttpServer};
 use dotenv::dotenv;
 use mongodb::{options::ClientOptions, Client};
 use routes::auth::{login_user, register_user};
+use routes::movies::{create_movie, get_all_movies, get_movie, get_random_movie};
 
 use std::env;
 
@@ -18,7 +19,7 @@ use crate::routes::{auth, lists, movies, users};
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    std::env::set_var("RUST_LOG", "actix_web=info");
+    std::env::set_var("RUST_LOG", "debug");
     env_logger::init();
     dotenv().ok();
 
@@ -28,9 +29,12 @@ async fn main() -> std::io::Result<()> {
         .expect("Failed to parse MongoDB URL");
 
     let client = Client::with_options(client_options).expect("Failed to create MongoDB client");
-    let db = client
+    let auth_db = client
         .database("test")
         .collection::<user_mod::User>("users");
+    let movie_collection = client
+        .database("test")
+        .collection::<movie_mod::Movie>("movies");
 
     println!("MongoDB database connected!");
 
@@ -45,16 +49,20 @@ async fn main() -> std::io::Result<()> {
                     .max_age(3600),
             )
             .wrap(Logger::default())
-            .app_data(web::Data::new(db.clone()))
+            .app_data(web::Data::new(auth_db.clone()))
+            .app_data(web::Data::new(movie_collection.clone()))
             .service(
                 web::scope("/api/auth")
                     .route("/register", web::post().to(register_user))
                     .route("/login", web::post().to(login_user)),
             )
-        // .service{
-        //     web::scope("/api/movies/")
-
-        // }
+            .service(
+                web::scope("/api/movies")
+                    .route("/", web::post().to(create_movie))
+                    .route("/", web::get().to(get_all_movies))
+                    .route("/find/{id}", web::get().to(get_movie))
+                    .route("/random", web::get().to(get_random_movie)),
+            )
     })
     .bind(format!("localhost:{}", port))?;
 

@@ -19,12 +19,11 @@ pub struct Claims {
 }
 
 pub async fn register_user(
-    db: web::Data<Collection<User>>,
+    auth_db: web::Data<Collection<User>>,
     user_info: web::Json<User>,
 ) -> impl Responder {
     let cipher = Cipher::aes_256_cbc();
 
-    // Decode the base64 SECRET_KEY and handle errors
     let secret_key = match env::var("SECRET_KEY") {
         Ok(encoded_key) => match decode(&encoded_key) {
             Ok(key) => {
@@ -48,7 +47,7 @@ pub async fn register_user(
         match encrypt(cipher, &secret_key, None, &user_info.password.as_bytes()) {
             Ok(encrypted) => encrypted,
             Err(e) => {
-                eprintln!("Encryption error: {:?}", e); // log the error for debugging
+                eprintln!("Encryption error: {:?}", e); 
                 return HttpResponse::InternalServerError()
                     .body(format!("Failed to encrypt password: {:?}", e));
             }
@@ -62,14 +61,14 @@ pub async fn register_user(
         is_admin: Some(true),
     };
 
-    match db.insert_one(new_user).await {
+    match auth_db.insert_one(new_user).await {
         Ok(_) => HttpResponse::Created().finish(),
         Err(e) => HttpResponse::InternalServerError().body(e.to_string()),
     }
 }
 
 pub async fn login_user(
-    db: web::Data<Collection<User>>,
+    auth_db: web::Data<Collection<User>>,
     user_info: web::Json<User>,
 ) -> impl Responder {
     // Check if the password is provided
@@ -85,7 +84,7 @@ pub async fn login_user(
     } else {
         return HttpResponse::BadRequest().body("Email or username is required.");
     };
-    let user_result = db.find_one(query).await;
+    let user_result = auth_db.find_one(query).await;
 
     match user_result {
         Ok(Some(user)) => {
