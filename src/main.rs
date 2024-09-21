@@ -2,6 +2,7 @@
 
 mod models;
 mod routes;
+mod utils;
 mod verify_token;
 
 use actix_cors::Cors;
@@ -12,15 +13,16 @@ use mongodb::{options::ClientOptions, Client};
 use routes::auth::{login_user, register_user};
 use routes::lists::{create_list, delete_list, get_lists};
 use routes::movies::{create_movie, get_all_movies, get_movie, get_random_movie};
+use routes::users::{get_all_users, get_user};
 
 use std::env;
 
-use crate::models::{list_mod, movie_mod, user_mod};
+use crate::models::{list_mod, movie_mod, user_mod, users_mod};
 use crate::routes::{auth, lists, movies, users};
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    std::env::set_var("RUST_LOG", "debug");
+    std::env::set_var("RUST_LOG", "actix_web=info");
     env_logger::init();
     dotenv().ok();
 
@@ -39,6 +41,9 @@ async fn main() -> std::io::Result<()> {
     let list_collection = client
         .database("test")
         .collection::<list_mod::List>("lists");
+    let users_collection = client
+        .database("test")
+        .collection::<users_mod::Users>("users");
 
     println!("MongoDB database connected!");
 
@@ -56,6 +61,7 @@ async fn main() -> std::io::Result<()> {
             .app_data(web::Data::new(auth_db.clone()))
             .app_data(web::Data::new(movie_collection.clone()))
             .app_data(web::Data::new(list_collection.clone()))
+            .app_data(web::Data::new(users_collection.clone()))
             .service(
                 web::scope("/api/auth")
                     .route("/register", web::post().to(register_user))
@@ -73,6 +79,11 @@ async fn main() -> std::io::Result<()> {
                     .route("/", web::post().to(create_list))
                     .route("/{id}", web::delete().to(delete_list))
                     .route("/", web::get().to(get_lists)),
+            )
+            .service(
+                web::scope("/api/users")
+                    .route("/", web::get().to(get_all_users))
+                    .route("/{id}", web::get().to(get_user))
             )
     })
     .bind(format!("localhost:{}", port))?;

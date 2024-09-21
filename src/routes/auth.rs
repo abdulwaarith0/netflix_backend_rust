@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use std::env;
 
 use crate::models;
+use crate::utils::{decrypt_password, encrypt_password, get_secret_key};
 
 #[derive(Serialize, Deserialize)]
 pub struct Claims {
@@ -22,41 +23,19 @@ pub async fn register_user(
     auth_db: web::Data<Collection<User>>,
     user_info: web::Json<User>,
 ) -> impl Responder {
-    let cipher = Cipher::aes_256_cbc();
 
-    let secret_key = match env::var("SECRET_KEY") {
-        Ok(encoded_key) => match decode(&encoded_key) {
-            Ok(key) => {
-                if key.len() == 32 {
-                    key
-                } else {
-                    eprintln!("Secret key must be exactly 32 bytes after decoding.");
-                    return HttpResponse::InternalServerError().body("Invalid SECRET_KEY length");
-                }
-            }
-            Err(e) => {
-                eprintln!("Failed to decode SECRET_KEY: {:?}", e);
-                return HttpResponse::InternalServerError().body("Failed to decode SECRET_KEY");
-            }
-        },
-        Err(_) => return HttpResponse::InternalServerError().body("SECRET_KEY not set"),
+    let encrypted_password = match encrypt_password(&user_info.password) {
+        Ok(password) => password,
+        Err(error_message) => {
+            eprintln!("{}", error_message);
+            return HttpResponse::InternalServerError().body(error_message);
+        }
     };
-
-    // Safely perform encryption
-    let password_encrypted =
-        match encrypt(cipher, &secret_key, None, &user_info.password.as_bytes()) {
-            Ok(encrypted) => encrypted,
-            Err(e) => {
-                eprintln!("Encryption error: {:?}", e); 
-                return HttpResponse::InternalServerError()
-                    .body(format!("Failed to encrypt password: {:?}", e));
-            }
-        };
 
     let new_user = User {
         username: user_info.username.clone(),
         email: user_info.email.clone(),
-        password: STANDARD.encode(password_encrypted),
+        password: encrypted_password,
         profile_pic: user_info.profile_pic.clone(),
         is_admin: Some(true),
     };
@@ -67,78 +46,59 @@ pub async fn register_user(
     }
 }
 
+
 pub async fn login_user(
     auth_db: web::Data<Collection<User>>,
     user_info: web::Json<User>,
 ) -> impl Responder {
-    // Check if the password is provided
     if user_info.password.is_empty() {
         return HttpResponse::BadRequest().body("Password is required.");
     }
 
-    // Determine the query based on provided info
-    let query = if let Some(email) = &user_info.email {
-        doc! { "email": email }
-    } else if let Some(username) = &user_info.username {
-        doc! { "username": username }
-    } else {
+    let query = user_info.email.as_ref().map_or_else(
+        || user_info.username.as_ref().map_or_else(
+            || doc! {},
+            |username| doc! { "username": username }
+        ),
+        |email| doc! { "email": email }
+    );
+
+    if query.is_empty() {
         return HttpResponse::BadRequest().body("Email or username is required.");
-    };
-    let user_result = auth_db.find_one(query).await;
-
-    match user_result {
-        Ok(Some(user)) => {
-            let secret_key = match env::var("SECRET_KEY") {
-                Ok(encoded_key) => match decode(&encoded_key) {
-                    Ok(key) => {
-                        if key.len() == 32 {
-                            key
-                        } else {
-                            return HttpResponse::InternalServerError().body("Invalid key length");
-                        }
-                    }
-                    Err(_) => {
-                        return HttpResponse::InternalServerError()
-                            .body("Failed to decode SECRET_KEY")
-                    }
-                },
-                Err(_) => return HttpResponse::InternalServerError().body("SECRET_KEY not set"),
-            };
-
-            let password_decrypted = match decrypt(
-                Cipher::aes_256_cbc(),
-                &secret_key,
-                None,
-                &decode(&user.password).unwrap_or_default(),
-            ) {
-                Ok(decrypted) => decrypted,
-                Err(_) => {
-                    return HttpResponse::InternalServerError().body("Failed to decrypt password")
-                }
-            };
-
-            if String::from_utf8(password_decrypted).unwrap_or_default() != user_info.password {
-                return HttpResponse::Unauthorized().body("Wrong password or username!!");
-            }
-            let claims = Claims {
-                sub: user.email.clone().unwrap_or_default(),
-                exp: 10000000,
-                is_admin: user.is_admin.unwrap_or(false),
-            };
-
-            let token = match encode(
-                &Header::default(),
-                &claims,
-                &EncodingKey::from_secret(&secret_key),
-            ) {
-                Ok(t) => t,
-                Err(_) => {
-                    return HttpResponse::InternalServerError().body("Failed to generate token")
-                }
-            };
-            HttpResponse::Ok().json(token)
-        }
-        Ok(None) => HttpResponse::Unauthorized().body("Wrong password or username!!"),
-        Err(_) => HttpResponse::InternalServerError().body("Database query failed"),
     }
+
+    let user_result = auth_db.find_one(query).await;
+    let user = match user_result {
+        Ok(Some(user)) => user,
+        Ok(None) => return HttpResponse::Unauthorized().body("Wrong password or username!"),
+        Err(_) => return HttpResponse::InternalServerError().body("Database query failed"),
+    };
+
+    let secret_key = match get_secret_key() {
+        Ok(key) => key,
+        Err(response) => return response,
+    };
+
+    let password_decrypted = match decrypt_password(&user.password, &secret_key) {
+        Ok(decrypted) => decrypted,
+        Err(response) => return response,
+    };
+
+    if password_decrypted != user_info.password {
+        return HttpResponse::Unauthorized().body("Wrong password or username!");
+    }
+
+    let claims = Claims {
+        sub: user.email.unwrap_or_default(),
+        exp: 1000000000, 
+        is_admin: user.is_admin.unwrap_or(false),
+    };
+
+    let token = match encode(&Header::default(), &claims, &EncodingKey::from_secret(&secret_key)) {
+        Ok(t) => t,
+        Err(_) => return HttpResponse::InternalServerError().body("Failed to generate token"),
+    };
+
+    HttpResponse::Ok().json(token)
 }
+

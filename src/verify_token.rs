@@ -1,12 +1,15 @@
 #![allow(dead_code)]
 
+use actix_web::HttpResponse;
 use actix_web::{web::Data, HttpRequest, HttpMessage};
 use jsonwebtoken::{decode, DecodingKey, Validation};
 use std::collections::HashMap;
+use openssl::symm::{decrypt, encrypt, Cipher};
 use std::env;
 use thiserror::Error;
 
 use crate::auth::Claims;
+
 
 pub fn get_token_from_cookie(req: &HttpRequest) -> Option<String> {
     req.headers()
