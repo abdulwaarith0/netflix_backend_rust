@@ -54,7 +54,7 @@ async fn main() -> std::io::Result<()> {
         App::new()
             .wrap(
                 Cors::default()
-                    .allowed_origin("http://localhost:5174")
+                    .allowed_origin("https://visionarynetflixclone.vercel.app/")
                     .allowed_methods(vec!["GET", "POST", "OPTIONS"])
                     .allowed_headers(vec!["Content-Type", "Authorization"])
                     .max_age(3600),
