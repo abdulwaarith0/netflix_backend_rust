@@ -10,6 +10,7 @@ use actix_web::middleware::Logger;
 use actix_web::{web, App, HttpServer};
 use dotenv::dotenv;
 use mongodb::{options::ClientOptions, Client};
+use std::net::TcpListener;
 use routes::auth::{login_user, register_user};
 use routes::lists::{create_list, delete_list, get_lists};
 use routes::movies::{create_movie, get_all_movies, get_movie, get_random_movie};
@@ -48,6 +49,7 @@ async fn main() -> std::io::Result<()> {
     println!("MongoDB database connected!");
 
     let port = env::var("PORT").unwrap_or_else(|_| "8080".to_string());
+    let listener = TcpListener::bind(format!("0.0.0.0:{}", port)).unwrap();
     let server = HttpServer::new(move || {
         App::new()
             .wrap(
@@ -86,7 +88,8 @@ async fn main() -> std::io::Result<()> {
                     .route("/{id}", web::get().to(get_user))
             )
     })
-    .bind(format!("localhost:{}", port))?;
+    .listen(listener)?
+    ;
 
     println!("Server connected on port {}", port);
 
