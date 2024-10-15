@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+
 use actix_web::{web, HttpResponse, Responder};
 use base64::engine::general_purpose::STANDARD;
 use base64::{decode, Engine};

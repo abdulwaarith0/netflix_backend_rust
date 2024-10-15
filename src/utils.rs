@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+
 use actix_web::HttpResponse;
 use base64::decode;
 use openssl::symm::{decrypt, Cipher, encrypt};

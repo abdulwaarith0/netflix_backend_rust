@@ -1,3 +1,5 @@
+#![allow(unreachable_code)]
+
 use chrono::{DateTime, Local, NaiveDateTime, TimeZone, Utc};
 use mongodb::bson::{bson, oid::ObjectId, DateTime as BsonDateTime};
 use serde::{Deserialize, Serialize};
