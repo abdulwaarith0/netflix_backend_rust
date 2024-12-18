@@ -23,8 +23,6 @@ use crate::routes::{auth, lists, movies, users};
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    std::env::set_var("RUST_LOG", "actix_web=info");
-    env_logger::init();
     dotenv().ok();
 
     let mongodb_url = env::var("MONGODB_URL").expect("MONGODB_URL must be set");

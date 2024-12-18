@@ -40,7 +40,7 @@ pub fn get_jwt_token(req: &HttpRequest) -> Option<String> {
 
 pub async fn verify(req: HttpRequest) -> Result<HashMap<String, String>, Box<dyn std::error::Error>> {
     let token = get_jwt_token(&req).ok_or(AppError::TokenNotFound)?;
-    let secret_key = std::env::var("SECRET_KEY").map_err(|_| AppError::SecretKeyNotSet)?;
+    let secret_key = env::var("SECRET_KEY").map_err(|_| AppError::SecretKeyNotSet)?;
     let token_data = decode::<Claims>(
         &token,
         &DecodingKey::from_secret(secret_key.as_ref()),

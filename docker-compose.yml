@@ -1,0 +1,28 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    depends_on:
+      - mongo
+    env_file:
+      - .env
+  mongo:
+    image: mongo:latest
+    container_name: mongo
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    command: ["mongod", "--quiet"]
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100k"
+        max-file: "5"
+        env: "production"
+
+volumes:
+  mongo_data:
