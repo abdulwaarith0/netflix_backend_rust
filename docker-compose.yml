@@ -9,6 +9,8 @@ services:
       - mongo
     env_file:
       - .env
+    volumes:
+      - .:/app
   mongo:
     image: mongo:latest
     container_name: mongo
@@ -16,13 +18,6 @@ services:
       - "27017:27017"
     volumes:
       - mongo_data:/data/db
-    command: ["mongod", "--quiet"]
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "100k"
-        max-file: "5"
-        env: "production"
 
 volumes:
   mongo_data:

@@ -25,7 +25,7 @@ pub async fn get_user(
     id: web::Path<String>,
     users_collection: web::Data<mongodb::Collection<Users>>,
 ) -> impl Responder {
-    let user_id = match ObjectId::parse_str(&id.into_inner()) {
+    let user_id = match ObjectId::parse_str(id.into_inner()) {
         Ok(oid) => oid,
         Err(_) => return HttpResponse::BadRequest().finish(),
     };
