@@ -7,8 +7,9 @@ mod verify_token;
 
 use actix_cors::Cors;
 use actix_web::middleware::Logger;
-use actix_web::{web, App, HttpServer};
+use actix_web::{web, App, HttpServer, HttpResponse, Responder};
 use dotenv::dotenv;
+use env_logger::Env;
 use mongodb::{options::ClientOptions, Client};
 use std::net::TcpListener;
 use std::env;
@@ -22,13 +23,19 @@ use crate::routes::{auth, lists, movies, users};
 
 
 // Handler for the health check endpoint
-async fn health_check() -> impl actix_web::Responder {
-    actix_web::HttpResponse::Ok().json("Service is up and running")
+async fn health_check() -> impl Responder {
+    log::info!("Health check endpoint was accessed");
+    HttpResponse::Ok().json("Service is up and running")
 }
 
 // main function to run the server 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
+    // Set the RUST_LOG environment variable to "actix_web=info"
+    std::env::set_var("RUST_LOG", "actix_web=info");
+    // Initialize the logger from the environment variable
+    env_logger::init_from_env(Env::default().default_filter_or("info"));
+    // Load the environment variables from the .env file
     dotenv().ok();
 
     // Get the MongoDB URL from the environment variable 
