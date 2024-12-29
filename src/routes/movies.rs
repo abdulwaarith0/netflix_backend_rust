@@ -8,15 +8,19 @@ use mongodb::{
 };
 use serde_json::json;
 
-// CREATE MOVIE
+// Create a new movie 
 pub async fn create_movie(
     req: HttpRequest,
     movie_data: web::Json<Movie>,
     movie_collection: web::Data<Collection<Movie>>,
 ) -> impl Responder {
+
+    // Verify the token 
     if let Ok(claims) = verify(req).await {
         if let Some(is_admin_str) = claims.get("is_admin") {
             let is_admin = is_admin_str == "true";
+
+            // Insert the movie into the database 
             if is_admin {
                 match movie_collection.insert_one(movie_data.into_inner()).await {
                     Ok(result) => HttpResponse::Created().json(result.inserted_id),
@@ -33,14 +37,18 @@ pub async fn create_movie(
     }
 }
 
-// GET ALL MOVIES
+// Get all movies 
 pub async fn get_all_movies(
     req: HttpRequest,
     movie_collection: web::Data<Collection<Movie>>,
 ) -> impl Responder {
+
+    // Verify the token 
     if let Ok(claims) = verify(req).await {
         if let Some(is_admin_str) = claims.get("is_admin") {
             let is_admin = is_admin_str == "true";
+
+            // Check if the user is admin 
             if is_admin {
                 let cursor = movie_collection.find(doc! {}).await;
                 match cursor {
@@ -65,12 +73,14 @@ pub async fn get_all_movies(
 }
 
 
-// GET MOVIE
+// Get a movie 
 pub async fn get_movie(
     req: HttpRequest,
     movie_id: web::Path<String>,
     movie_collection: web::Data<Collection<Movie>>,
 ) -> impl Responder {
+
+    // Verify the token 
     if let Ok(_claims) = verify(req).await {
         let filter = doc! { "_id": movie_id.into_inner() };
         match movie_collection.find_one(filter).await {
@@ -84,11 +94,13 @@ pub async fn get_movie(
 }
 
 
-// GET RANDOM MOVIE
+// Get a random movie 
 pub async fn get_random_movie(
     req: HttpRequest,
     movie_collection: web::Data<Collection<Movie>>,
 ) -> impl Responder {
+
+    // Verify the token 
     let req_clone = req.clone();
     if let Ok(_claims) = verify(req_clone).await {
         let query_string = req.query_string();
@@ -96,6 +108,8 @@ pub async fn get_random_movie(
         let _options = mongodb::options::FindOptions::builder()
             .sort(doc! { "$sample": { "size": 1 } })
             .build();
+
+        // Find the movie in the database 
         match movie_collection.find_one(filter).await {
             Ok(Some(movie)) => HttpResponse::Ok().json(movie),
             Ok(None) => HttpResponse::NotFound().finish(),

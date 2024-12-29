@@ -6,7 +6,7 @@ use crate::verify_token::verify;
 use crate::utils::encrypt_password; 
 
 
-// Helper to extract and verify current user
+// Helper to extract and verify current user 
 async fn extract_and_verify_user(req: &HttpRequest) -> Result<Users, HttpResponse> {
     let verification_result = verify(req.clone()).await;
     match verification_result {
@@ -20,7 +20,7 @@ async fn extract_and_verify_user(req: &HttpRequest) -> Result<Users, HttpRespons
     }
 }
 
-// GET
+// Get a user 
 pub async fn get_user(
     id: web::Path<String>,
     users_collection: web::Data<mongodb::Collection<Users>>,
@@ -38,11 +38,13 @@ pub async fn get_user(
 }
 
 
-// GET ALL
+// Get all users 
 pub async fn get_all_users(
     req: HttpRequest,
     users_collection: web::Data<mongodb::Collection<Users>>,
 ) -> impl Responder {
+    
+    // Verify the token 
     match extract_and_verify_user(&req).await {
         Ok(current_user) => {
             if current_user.is_admin.unwrap_or(false) {

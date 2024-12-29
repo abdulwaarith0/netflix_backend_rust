@@ -6,12 +6,14 @@ use crate::models::list_mod::List;
 use crate::verify_token::verify;
 use serde_json::json;
 
-// CREATE LIST
+// Create a new list 
 pub async fn create_list(
     req: HttpRequest,
     list_data: web::Json<List>,
     list_collection: web::Data<Collection<List>>,
 ) -> impl Responder {
+
+    // Verify the token 
     let claims = verify(req).await;
     if claims.is_ok() && claims.unwrap().get("is_admin") == Some(&"true".to_string()) {
         match list_collection.insert_one(list_data.into_inner()).await {
@@ -23,12 +25,14 @@ pub async fn create_list(
     }
 }
 
-// DELETE LIST
+// Delete a list 
 pub async fn delete_list(
     req: HttpRequest,
     list_id: web::Path<String>,
     list_collection: web::Data<Collection<List>>,
 ) -> impl Responder {
+
+    // Verify the token 
     let claims = verify(req).await;
     if claims.is_ok() && claims.unwrap().get("is_admin") == Some(&"true".to_string()) {
         match list_collection.delete_one(doc! { "_id": list_id.into_inner() }).await {
@@ -40,19 +44,23 @@ pub async fn delete_list(
     }
 }
 
-// GET LISTS
+// Get all lists 
 pub async fn get_lists(
     req: HttpRequest,
     list_collection: web::Data<Collection<List>>,
 ) -> impl Responder {
+
+    // Verify the token 
     let claims = verify(req.clone()).await;
     if claims.is_err() {
         return HttpResponse::Unauthorized().finish();
     }
 
+    // Get the type and genre from the query string
     let type_query = req.query_string().contains("type=");
     let genre_query = req.query_string().contains("genre=");
 
+    // Create the filter for the query 
     let filter = if type_query && genre_query {
         doc! { "type": req.query_string(), "genre": req.query_string() }
     } else if type_query {
@@ -61,7 +69,10 @@ pub async fn get_lists(
         doc! {}
     };
 
+    // Find the lists in the database 
     let cursor = list_collection.find(filter).await;
+
+    // Get the lists from the database 
     match cursor {
         Ok(mut cursor) => {
             let mut lists = Vec::new();

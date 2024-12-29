@@ -24,6 +24,7 @@ pub struct Users {
     pub updated_at: Option<BsonDateTime>,
 }
 
+// Convert a hashmap to a Users struct 
 impl From<HashMap<String, String>> for Users {
     fn from(data: HashMap<String, String>) -> Self {
         Users {

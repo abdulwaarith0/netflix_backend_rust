@@ -11,26 +11,38 @@ use actix_web::{web, App, HttpServer};
 use dotenv::dotenv;
 use mongodb::{options::ClientOptions, Client};
 use std::net::TcpListener;
+use std::env;
 use routes::auth::{login_user, register_user};
 use routes::lists::{create_list, delete_list, get_lists};
 use routes::movies::{create_movie, get_all_movies, get_movie, get_random_movie};
 use routes::users::{get_all_users, get_user};
 
-use std::env;
-
 use crate::models::{list_mod, movie_mod, user_mod, users_mod};
 use crate::routes::{auth, lists, movies, users};
 
+
+// Handler for the health check endpoint
+async fn health_check() -> impl actix_web::Responder {
+    actix_web::HttpResponse::Ok().json("Service is up and running")
+}
+
+// main function to run the server 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     dotenv().ok();
 
+    // Get the MongoDB URL from the environment variable 
     let mongodb_url = env::var("MONGODB_URL").expect("MONGODB_URL must be set");
+
+    // Parse the MongoDB URL and create a client 
     let client_options = ClientOptions::parse(&mongodb_url)
         .await
         .expect("Failed to parse MongoDB URL");
 
+    // Create a client with the client_options 
     let client = Client::with_options(client_options).expect("Failed to create MongoDB client");
+
+    // Get the database and collections
     let auth_db = client
         .database("test")
         .collection::<user_mod::User>("users");
@@ -44,15 +56,21 @@ async fn main() -> std::io::Result<()> {
         .database("test")
         .collection::<users_mod::Users>("users");
 
-    println!("MongoDB database connected!");
+    println!("MongoDB database connected!");    
 
+    // Get the port from the environment variable or use 8080 as default
     let port = env::var("PORT").unwrap_or_else(|_| "8080".to_string());
+
+    // Bind the server to the port using the TcpListener
     let listener = TcpListener::bind(format!("0.0.0.0:{}", port)).unwrap();
+
+    // Create the server with the routes
     let server = HttpServer::new(move || {
         App::new()
             .wrap(
+                // Allow the frontend to access the server
                 Cors::default()
-                    .allowed_origin("https://visionarynetflixclone.vercel.app/")
+                    .allowed_origin("https://visionarynetflixclone.vercel.app")
                     .allowed_methods(vec!["GET", "POST", "OPTIONS"])
                     .allowed_headers(vec!["Content-Type", "Authorization"])
                     .max_age(3600),
@@ -63,11 +81,13 @@ async fn main() -> std::io::Result<()> {
             .app_data(web::Data::new(list_collection.clone()))
             .app_data(web::Data::new(users_collection.clone()))
             .service(
+                // Define the routes for the authentication
                 web::scope("/api/auth")
                     .route("/register", web::post().to(register_user))
                     .route("/login", web::post().to(login_user)),
             )
             .service(
+                // Define the routes for the movies
                 web::scope("/api/movies")
                     .route("/", web::post().to(create_movie))
                     .route("/", web::get().to(get_all_movies))
@@ -75,15 +95,22 @@ async fn main() -> std::io::Result<()> {
                     .route("/random", web::get().to(get_random_movie)),
             )
             .service(
+                // Define the routes for the lists
                 web::scope("/api/lists")
                     .route("/", web::post().to(create_list))
                     .route("/{id}", web::delete().to(delete_list))
                     .route("/", web::get().to(get_lists)),
             )
             .service(
+                // Define the routes for the users
                 web::scope("/api/users")
                     .route("/", web::get().to(get_all_users))
                     .route("/{id}", web::get().to(get_user))
+            )
+            .service(
+                // Handler for the health check endpoint
+                web::scope("/api/health")
+                    .route("/", web::get().to(health_check))
             )
     })
     .listen(listener)?
@@ -91,6 +118,7 @@ async fn main() -> std::io::Result<()> {
 
     println!("Server connected on port {}", port);
 
+    // Run the server
     server.run().await?;
 
     Ok(())

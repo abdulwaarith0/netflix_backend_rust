@@ -10,7 +10,7 @@ use thiserror::Error;
 
 use crate::auth::Claims;
 
-
+// Get the token from the cookie 
 pub fn get_token_from_cookie(req: &HttpRequest) -> Option<String> {
     req.headers()
         .get(actix_web::http::header::COOKIE)
@@ -27,6 +27,7 @@ pub fn get_token_from_cookie(req: &HttpRequest) -> Option<String> {
         })
 }
 
+// Get the token from the authorization header
 pub fn get_token_from_auth_header(req: &HttpRequest) -> Option<String> {
     req.headers()
         .get(actix_web::http::header::PROXY_AUTHORIZATION)
@@ -34,10 +35,12 @@ pub fn get_token_from_auth_header(req: &HttpRequest) -> Option<String> {
         .and_then(|header_str| header_str.split(' ').nth(1).map(String::from))
 }
 
+// Get the token from the cookie or the authorization header
 pub fn get_jwt_token(req: &HttpRequest) -> Option<String> {
     get_token_from_cookie(req).or_else(|| get_token_from_auth_header(req))
 }
 
+// Verify the token
 pub async fn verify(req: HttpRequest) -> Result<HashMap<String, String>, Box<dyn std::error::Error>> {
     let token = get_jwt_token(&req).ok_or(AppError::TokenNotFound)?;
     let secret_key = env::var("SECRET_KEY").map_err(|_| AppError::SecretKeyNotSet)?;
@@ -47,6 +50,7 @@ pub async fn verify(req: HttpRequest) -> Result<HashMap<String, String>, Box<dyn
         &Validation::default(),
     ).map_err(|e| e.to_string())?;
 
+    // Convert the claims to a map of strings
     let mut claims_map = HashMap::new();
     claims_map.insert("sub".to_string(), token_data.claims.sub);
     claims_map.insert("exp".to_string(), token_data.claims.exp.to_string());
@@ -55,7 +59,7 @@ pub async fn verify(req: HttpRequest) -> Result<HashMap<String, String>, Box<dyn
     Ok(claims_map)
 }
 
-
+// Error handling for the token verification
 #[derive(Error, Debug)]
 pub enum AppError {
     #[error("Token not found")]

@@ -11,6 +11,7 @@ services:
       - .env
     volumes:
       - .:/app
+
   mongo:
     image: mongo:latest
     container_name: mongo
