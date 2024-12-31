@@ -13,6 +13,8 @@ use env_logger::Env;
 use mongodb::{options::ClientOptions, Client};
 use std::net::TcpListener;
 use std::env;
+use tracing::{info, Level};
+use tracing_subscriber::FmtSubscriber;
 use routes::auth::{login_user, register_user};
 use routes::lists::{create_list, delete_list, get_lists};
 use routes::movies::{create_movie, get_all_movies, get_movie, get_random_movie};
@@ -31,10 +33,28 @@ async fn health_check() -> impl Responder {
 // main function to run the server 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    // Set the RUST_LOG environment variable to "actix_web=info"
-    std::env::set_var("RUST_LOG", "actix_web=info");
-    // Initialize the logger from the environment variable
+    // Set the logging level from the environment variable
     env_logger::init_from_env(Env::default().default_filter_or("info"));
+    // Set the logging level from the environment variable or use debug as default
+    let logging_level = std::env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string());
+    // Set the max level based on the logging level
+    let max_level = match logging_level.as_str() {
+        "trace" => Level::TRACE,
+        "info" => Level::INFO,
+        "debug" => Level::DEBUG,
+        "error" => Level::ERROR,
+        "warn" => Level::WARN,
+        _ => Level::INFO,
+    };
+
+    // Create a subscriber that logs to the console with the max level 
+    let subscriber = FmtSubscriber::builder()
+        .with_max_level(max_level)
+        .finish();
+    
+    // Set the subscriber as the global default
+    tracing::subscriber::set_global_default(subscriber).expect("Failed to set subscriber");
+    info!("Starting server...");
     // Load the environment variables from the .env file
     dotenv().ok();
 
@@ -63,7 +83,7 @@ async fn main() -> std::io::Result<()> {
         .database("test")
         .collection::<users_mod::Users>("users");
 
-    println!("MongoDB database connected!");    
+    info!("MongoDB database connected!");  
 
     // Get the port from the environment variable or use 8080 as default
     let port = env::var("PORT").unwrap_or_else(|_| "8080".to_string());
@@ -82,7 +102,8 @@ async fn main() -> std::io::Result<()> {
                     .allowed_headers(vec!["Content-Type", "Authorization"])
                     .max_age(3600),
             )
-            .wrap(Logger::default())
+            // Log the request details
+            .wrap(Logger::new("%a \"%r\" %s %b \"%{Referer}i\" \"%{User-Agent}i\" %T"))
             .app_data(web::Data::new(auth_db.clone()))
             .app_data(web::Data::new(movie_collection.clone()))
             .app_data(web::Data::new(list_collection.clone()))
@@ -123,7 +144,7 @@ async fn main() -> std::io::Result<()> {
     .listen(listener)?
     ;
 
-    println!("Server connected on port {}", port);
+    info!("Server connected on port {}", port);
 
     // Run the server
     server.run().await?;
