@@ -1,66 +1,47 @@
-use actix_web::{web, HttpRequest, HttpResponse, Responder};
-use futures_util::StreamExt;
+use crate::routes::auth::{require_admin, require_auth};
+use crate::models::users::Users;
+use actix_web::{web, HttpRequest, HttpResponse};
+use futures_util::TryStreamExt;
 use mongodb::bson::{doc, oid::ObjectId};
-use crate::models::users_mod::Users;
-use crate::verify_token::verify;
-use crate::utils::encrypt_password; 
 
+// ── Handlers ──────────────────────────────────────────────────────────────────
 
-// Helper to extract and verify current user 
-async fn extract_and_verify_user(req: &HttpRequest) -> Result<Users, HttpResponse> {
-    let verification_result = verify(req.clone()).await;
-    match verification_result {
-        Ok(user_data) => {
-            match Users::try_from(user_data) {
-                Ok(user) => Ok(user),
-                Err(_) => Err(HttpResponse::InternalServerError().finish()),
-            }
-        },
-        Err(_) => Err(HttpResponse::Unauthorized().finish())
-    }
-}
-
-// Get a user 
+/// GET /users/{id}  — any authenticated user
 pub async fn get_user(
+    req: HttpRequest,
     id: web::Path<String>,
     users_collection: web::Data<mongodb::Collection<Users>>,
-) -> impl Responder {
+) -> HttpResponse {
+    if let Err(res) = require_auth(req).await {
+        return res;
+    }
+
     let user_id = match ObjectId::parse_str(id.into_inner()) {
         Ok(oid) => oid,
-        Err(_) => return HttpResponse::BadRequest().finish(),
+        Err(_) => return HttpResponse::BadRequest().body("Invalid user ID format."),
     };
-    let find_result = users_collection.find_one(doc! { "_id": user_id }).await;
 
-    match find_result {
+    match users_collection.find_one(doc! { "_id": user_id }).await {
         Ok(Some(user)) => HttpResponse::Ok().json(user),
-        _ => HttpResponse::InternalServerError().finish(),
+        Ok(None) => HttpResponse::NotFound().body("User not found."), // was InternalServerError
+        Err(e) => HttpResponse::InternalServerError().body(e.to_string()),
     }
 }
 
-
-// Get all users 
+/// GET /users  — admin only
 pub async fn get_all_users(
     req: HttpRequest,
     users_collection: web::Data<mongodb::Collection<Users>>,
-) -> impl Responder {
-    
-    // Verify the token 
-    match extract_and_verify_user(&req).await {
-        Ok(current_user) => {
-            if current_user.is_admin.unwrap_or(false) {
-                let find_result = users_collection.find(doc! {}).await;
+) -> HttpResponse {
+    if let Err(res) = require_admin(req).await {
+        return res;
+    }
 
-                match find_result {
-                    Ok(cursor) => {
-                        let users: Vec<Users> = cursor.map(|doc| doc.unwrap()).collect().await;
-                        HttpResponse::Ok().json(users)
-                    },
-                    _ => HttpResponse::InternalServerError().finish(),
-                }
-            } else {
-                HttpResponse::Forbidden().json("You are not allowed to see all users")
-            }
+    match users_collection.find(doc! {}).await {
+        Ok(cursor) => match cursor.try_collect::<Vec<Users>>().await {
+            Ok(users) => HttpResponse::Ok().json(users),
+            Err(e) => HttpResponse::InternalServerError().body(e.to_string()),
         },
-        Err(response) => response
+        Err(e) => HttpResponse::InternalServerError().body(e.to_string()),
     }
 }

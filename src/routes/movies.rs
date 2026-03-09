@@ -1,121 +1,97 @@
-use crate::models::movie_mod::Movie;
-use crate::verify_token::verify;
-use actix_web::{get, web, App, HttpRequest, HttpResponse, HttpServer, Responder};
-use futures_util::{stream::StreamExt, TryStreamExt as _};
-use mongodb::{
-    bson::{doc, Bson},
-    Client, Collection,
-};
-use serde_json::json;
+use crate::routes::auth::{require_admin, require_auth};
+use crate::models::movie::Movie;
+use actix_web::{web, HttpRequest, HttpResponse};
+use futures_util::TryStreamExt;
+use mongodb::{bson::doc, Collection};
+use serde::Deserialize;
 
-// Create a new movie 
+// ── Query param extractor ─────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+pub struct MovieTypeQuery {
+    /// ?type=series  or  ?type=movie
+    #[serde(rename = "type")]
+    media_type: Option<String>,
+}
+
+// ── Handlers ──────────────────────────────────────────────────────────────────
+
+/// POST /movies  — admin only
 pub async fn create_movie(
     req: HttpRequest,
     movie_data: web::Json<Movie>,
     movie_collection: web::Data<Collection<Movie>>,
-) -> impl Responder {
+) -> HttpResponse {
+    if let Err(res) = require_admin(req).await {
+        return res;
+    }
 
-    // Verify the token 
-    if let Ok(claims) = verify(req).await {
-        if let Some(is_admin_str) = claims.get("is_admin") {
-            let is_admin = is_admin_str == "true";
-
-            // Insert the movie into the database 
-            if is_admin {
-                match movie_collection.insert_one(movie_data.into_inner()).await {
-                    Ok(result) => HttpResponse::Created().json(result.inserted_id),
-                    Err(e) => HttpResponse::InternalServerError().body(e.to_string()),
-                }
-            } else {
-                HttpResponse::Forbidden().body("You are not allowed!")
-            }
-        } else {
-            HttpResponse::Forbidden().body("You are not allowed!")
-        }
-    } else {
-        HttpResponse::Unauthorized().finish()
+    match movie_collection.insert_one(movie_data.into_inner()).await {
+        Ok(result) => HttpResponse::Created().json(result.inserted_id),
+        Err(e) => HttpResponse::InternalServerError().body(e.to_string()),
     }
 }
 
-// Get all movies 
+/// GET /movies  — admin only
 pub async fn get_all_movies(
     req: HttpRequest,
     movie_collection: web::Data<Collection<Movie>>,
-) -> impl Responder {
+) -> HttpResponse {
+    if let Err(res) = require_admin(req).await {
+        return res;
+    }
 
-    // Verify the token 
-    if let Ok(claims) = verify(req).await {
-        if let Some(is_admin_str) = claims.get("is_admin") {
-            let is_admin = is_admin_str == "true";
-
-            // Check if the user is admin 
-            if is_admin {
-                let cursor = movie_collection.find(doc! {}).await;
-                match cursor {
-                    Ok(mut cursor) => {
-                        let mut movies = Vec::new();
-                        while let Some(movie) = cursor.try_next().await.unwrap_or(None) {
-                            movies.push(movie);
-                        }
-                        HttpResponse::Ok().json(movies)
-                    }
-                    Err(e) => HttpResponse::InternalServerError().json(e.to_string()),
-                }
-            } else {
-                HttpResponse::Forbidden().body("You are not allowed!")
-            }
-        } else {
-            HttpResponse::Forbidden().body("You are not authorized!")
-        }
-    } else {
-        HttpResponse::Unauthorized().finish()
+    match movie_collection.find(doc! {}).await {
+        Ok(cursor) => match cursor.try_collect::<Vec<Movie>>().await {
+            Ok(movies) => HttpResponse::Ok().json(movies),
+            Err(e) => HttpResponse::InternalServerError().body(e.to_string()),
+        },
+        Err(e) => HttpResponse::InternalServerError().body(e.to_string()),
     }
 }
 
-
-// Get a movie 
+/// GET /movies/{id}  — any authenticated user
 pub async fn get_movie(
     req: HttpRequest,
     movie_id: web::Path<String>,
     movie_collection: web::Data<Collection<Movie>>,
-) -> impl Responder {
+) -> HttpResponse {
+    if let Err(res) = require_auth(req).await {
+        return res;
+    }
 
-    // Verify the token 
-    if let Ok(_claims) = verify(req).await {
-        let filter = doc! { "_id": movie_id.into_inner() };
-        match movie_collection.find_one(filter).await {
-            Ok(Some(movie)) => HttpResponse::Ok().json(movie),
-            Ok(None) => HttpResponse::NotFound().finish(),
-            Err(e) => HttpResponse::InternalServerError().json(e.to_string()),
-        }
-    } else {
-        HttpResponse::Unauthorized().finish()
+    let filter = doc! { "_id": movie_id.into_inner() };
+
+    match movie_collection.find_one(filter).await {
+        Ok(Some(movie)) => HttpResponse::Ok().json(movie),
+        Ok(None) => HttpResponse::NotFound().finish(),
+        Err(e) => HttpResponse::InternalServerError().body(e.to_string()),
     }
 }
 
-
-// Get a random movie 
+/// GET /movies/random?type=series  — any authenticated user
 pub async fn get_random_movie(
     req: HttpRequest,
+    query: web::Query<MovieTypeQuery>,
     movie_collection: web::Data<Collection<Movie>>,
-) -> impl Responder {
+) -> HttpResponse {
+    if let Err(res) = require_auth(req).await {
+        return res;
+    }
 
-    // Verify the token 
-    let req_clone = req.clone();
-    if let Ok(_claims) = verify(req_clone).await {
-        let query_string = req.query_string();
-        let filter = doc! { "is_series": query_string.contains("type=series") };
-        let _options = mongodb::options::FindOptions::builder()
-            .sort(doc! { "$sample": { "size": 1 } })
-            .build();
+    let is_series = query.media_type.as_deref() == Some("series");
 
-        // Find the movie in the database 
-        match movie_collection.find_one(filter).await {
-            Ok(Some(movie)) => HttpResponse::Ok().json(movie),
+    let pipeline = vec![
+        doc! { "$match": { "is_series": is_series } },
+        doc! { "$sample": { "size": 1 } },
+    ];
+
+    match movie_collection.aggregate(pipeline).await {
+        Ok(mut cursor) => match cursor.try_next().await {
+            Ok(Some(doc)) => HttpResponse::Ok().json(doc),
             Ok(None) => HttpResponse::NotFound().finish(),
-            Err(e) => HttpResponse::InternalServerError().json(e.to_string()),
-        }
-    } else {
-        HttpResponse::Unauthorized().finish()
+            Err(e) => HttpResponse::InternalServerError().body(e.to_string()),
+        },
+        Err(e) => HttpResponse::InternalServerError().body(e.to_string()),
     }
 }

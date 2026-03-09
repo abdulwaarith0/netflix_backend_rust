@@ -1,86 +1,83 @@
-use actix_web::{web, HttpResponse, HttpRequest, Responder};
+use crate::models::list::List;
+use crate::routes::auth::{require_admin, require_auth};
+use actix_web::{web, HttpRequest, HttpResponse};
 use bson::doc;
+use futures_util::TryStreamExt;
 use mongodb::Collection;
-use futures_util::{stream::StreamExt, TryStreamExt as _};
-use crate::models::list_mod::List;
-use crate::verify_token::verify;
-use serde_json::json;
+use serde::Deserialize;
 
-// Create a new list 
+// ── Query param extractor ─────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+pub struct ListQuery {
+    /// ?type=movie  or  ?type=series
+    #[serde(rename = "type")]
+    media_type: Option<String>,
+
+    /// ?genre=action
+    genre: Option<String>,
+}
+
+// ── Handlers ──────────────────────────────────────────────────────────────────
+
+/// POST /lists  — admin only
 pub async fn create_list(
     req: HttpRequest,
     list_data: web::Json<List>,
     list_collection: web::Data<Collection<List>>,
-) -> impl Responder {
+) -> HttpResponse {
+    if let Err(res) = require_admin(req).await {
+        return res;
+    }
 
-    // Verify the token 
-    let claims = verify(req).await;
-    if claims.is_ok() && claims.unwrap().get("is_admin") == Some(&"true".to_string()) {
-        match list_collection.insert_one(list_data.into_inner()).await {
-            Ok(result) => HttpResponse::Created().json(result.inserted_id),
-            Err(e) => HttpResponse::InternalServerError().json(e.to_string()),
-        }
-    } else {
-        HttpResponse::Forbidden().json("You are not allowed!")
+    match list_collection.insert_one(list_data.into_inner()).await {
+        Ok(result) => HttpResponse::Created().json(result.inserted_id),
+        Err(e) => HttpResponse::InternalServerError().body(e.to_string()),
     }
 }
 
-// Delete a list 
+/// DELETE /lists/{id}  — admin only
 pub async fn delete_list(
     req: HttpRequest,
     list_id: web::Path<String>,
     list_collection: web::Data<Collection<List>>,
-) -> impl Responder {
+) -> HttpResponse {
+    if let Err(res) = require_admin(req).await {
+        return res;
+    }
 
-    // Verify the token 
-    let claims = verify(req).await;
-    if claims.is_ok() && claims.unwrap().get("is_admin") == Some(&"true".to_string()) {
-        match list_collection.delete_one(doc! { "_id": list_id.into_inner() }).await {
-            Ok(_) => HttpResponse::Ok().json("The list has been deleted..."),
-            Err(e) => HttpResponse::InternalServerError().json(e.to_string()),
-        }
-    } else {
-        HttpResponse::Forbidden().json("You are not allowed!")
+    match list_collection
+        .delete_one(doc! { "_id": list_id.into_inner() })
+        .await
+    {
+        Ok(result) if result.deleted_count == 0 => HttpResponse::NotFound().body("List not found"),
+        Ok(_) => HttpResponse::Ok().body("The list has been deleted"),
+        Err(e) => HttpResponse::InternalServerError().body(e.to_string()),
     }
 }
 
-// Get all lists 
+/// GET /lists?type=movie&genre=action  — any authenticated user
 pub async fn get_lists(
     req: HttpRequest,
+    query: web::Query<ListQuery>,
     list_collection: web::Data<Collection<List>>,
-) -> impl Responder {
-
-    // Verify the token 
-    let claims = verify(req.clone()).await;
-    if claims.is_err() {
-        return HttpResponse::Unauthorized().finish();
+) -> HttpResponse {
+    if let Err(res) = require_auth(req).await {
+        return res;
     }
 
-    // Get the type and genre from the query string
-    let type_query = req.query_string().contains("type=");
-    let genre_query = req.query_string().contains("genre=");
-
-    // Create the filter for the query 
-    let filter = if type_query && genre_query {
-        doc! { "type": req.query_string(), "genre": req.query_string() }
-    } else if type_query {
-        doc! { "type": req.query_string() }
-    } else {
-        doc! {}
+    let filter = match (&query.media_type, &query.genre) {
+        (Some(t), Some(g)) => doc! { "type": t, "genre": g },
+        (Some(t), None) => doc! { "type": t },
+        (None, Some(g)) => doc! { "genre": g },
+        (None, None) => doc! {},
     };
 
-    // Find the lists in the database 
-    let cursor = list_collection.find(filter).await;
-
-    // Get the lists from the database 
-    match cursor {
-        Ok(mut cursor) => {
-            let mut lists = Vec::new();
-            while let Some(list) = cursor.try_next().await.unwrap_or(None) {
-                lists.push(list);
-            }
-            HttpResponse::Ok().json(lists)
+    match list_collection.find(filter).await {
+        Ok(cursor) => match cursor.try_collect::<Vec<List>>().await {
+            Ok(lists) => HttpResponse::Ok().json(lists),
+            Err(e) => HttpResponse::InternalServerError().body(e.to_string()),
         },
-        Err(e) => HttpResponse::InternalServerError().json(e.to_string()),
+        Err(e) => HttpResponse::InternalServerError().body(e.to_string()),
     }
 }
